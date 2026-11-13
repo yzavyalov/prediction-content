@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessDiscoveryEvents;
 use App\Models\DiscoveryRun;
 use App\Models\GenerationRun;
 use App\Services\Discovery\DiscoveryExecutor;
 use App\Services\Discovery\SourceDiscoveryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Mockery;
 use RuntimeException;
 use Tests\TestCase;
@@ -15,6 +17,13 @@ use Tests\TestCase;
 class DiscoveryExecutorTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Queue::fake();
+    }
 
     private function createContext(
         bool $withGenerationRun = true,
@@ -125,7 +134,7 @@ class DiscoveryExecutorTest extends TestCase
         $this->app->instance(SourceDiscoveryService::class, $mock);
     }
 
-    public function test_successful_discovery_completes_generation_run(): void
+    public function test_successful_discovery_waits_for_events(): void
     {
         $context = $this->createContext();
 
@@ -143,6 +152,7 @@ class DiscoveryExecutorTest extends TestCase
         $generation = $context['generation_run']->fresh();
 
         $this->assertSame('completed', $run->status);
+        $this->assertSame('pending', $run->events_status);
         $this->assertNotNull($run->started_at);
         $this->assertNotNull($run->finished_at);
         $this->assertSame(0, $run->found_count);
@@ -150,12 +160,19 @@ class DiscoveryExecutorTest extends TestCase
         $this->assertSame(2, $run->google_search_count);
         $this->assertSame(600, $run->total_tokens);
 
-        $this->assertSame('completed', $generation->status);
+        $this->assertSame('running', $generation->status);
         $this->assertSame(1, $generation->completed_discovery_runs_count);
         $this->assertSame(0, $generation->failed_discovery_runs_count);
         $this->assertSame(2, $generation->google_search_count);
         $this->assertSame(600, $generation->total_tokens);
-        $this->assertNotNull($generation->finished_at);
+        $this->assertNull($generation->finished_at);
+
+        Queue::assertPushed(
+            ProcessDiscoveryEvents::class,
+            fn ($job) => $job->discoveryRunId === $run->id
+        );
+
+        Queue::assertPushed(ProcessDiscoveryEvents::class, 1);
     }
 
     public function test_failed_discovery_marks_generation_failed(): void
@@ -191,6 +208,8 @@ class DiscoveryExecutorTest extends TestCase
         $this->assertSame(0, $generation->completed_discovery_runs_count);
         $this->assertSame(1, $generation->failed_discovery_runs_count);
         $this->assertNotNull($generation->finished_at);
+
+        Queue::assertNotPushed(ProcessDiscoveryEvents::class);
     }
 
     public function test_generation_stays_running_until_all_discoveries_finish(): void
@@ -202,7 +221,7 @@ class DiscoveryExecutorTest extends TestCase
 
         $this->mockDiscoverySuccess();
 
-        app(DiscoveryExecutor::class)->execute(
+        $run = app(DiscoveryExecutor::class)->execute(
             $context['discovery_runs'][0]
         );
 
@@ -217,6 +236,13 @@ class DiscoveryExecutorTest extends TestCase
             'pending',
             $context['discovery_runs'][1]->fresh()->status
         );
+
+        Queue::assertPushed(
+            ProcessDiscoveryEvents::class,
+            fn ($job) => $job->discoveryRunId === $run->id
+        );
+
+        Queue::assertPushed(ProcessDiscoveryEvents::class, 1);
     }
 
     public function test_standalone_discovery_completes_without_generation_run(): void
@@ -235,6 +261,13 @@ class DiscoveryExecutorTest extends TestCase
         $this->assertNull($run->generation_run_id);
         $this->assertNotNull($run->finished_at);
         $this->assertSame(0, GenerationRun::count());
+
+        Queue::assertPushed(
+            ProcessDiscoveryEvents::class,
+            fn ($job) => $job->discoveryRunId === $run->id
+        );
+
+        Queue::assertPushed(ProcessDiscoveryEvents::class, 1);
     }
 
     public function test_generation_discovery_window_is_refreshed_at_execution(): void
@@ -256,6 +289,8 @@ class DiscoveryExecutorTest extends TestCase
             1440,
             (int) $run->window_from->diffInMinutes($run->window_to)
         );
+
+        Queue::assertPushed(ProcessDiscoveryEvents::class, 1);
     }
 
     public function test_standalone_discovery_keeps_original_window(): void
@@ -284,5 +319,7 @@ class DiscoveryExecutorTest extends TestCase
         );
 
         $this->assertSame('completed', $run->status);
+
+        Queue::assertPushed(ProcessDiscoveryEvents::class, 1);
     }
 }

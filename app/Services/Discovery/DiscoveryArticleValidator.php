@@ -13,6 +13,7 @@ class DiscoveryArticleValidator
     ) {
     }
 
+
     public function validate(array $article, DiscoveryRun $run): ?array
     {
         $url = $article['url'] ?? null;
@@ -45,12 +46,9 @@ class DiscoveryArticleValidator
             return null;
         }
 
-        if (
-            $publishedAt->lt($run->window_from) ||
-            $publishedAt->gt($run->window_to)
-        ) {
-            return null;
-        }
+        // No publication date window restriction.
+        // Historical articles are allowed.
+        // Event date filtering happens during Event Extraction.
 
         $summary = $article['summary'] ?? null;
 
@@ -66,6 +64,21 @@ class DiscoveryArticleValidator
             $summary = null;
         }
 
+        // Full article text is optional.
+        $content = $article['content'] ?? null;
+
+        if ($content !== null && !is_string($content)) {
+            return null;
+        }
+
+        $content = is_string($content)
+            ? trim($content)
+            : null;
+
+        if ($content === '') {
+            $content = null;
+        }
+
         return [
             'url' => $url,
             'canonical_url' => $canonicalUrl,
@@ -73,6 +86,8 @@ class DiscoveryArticleValidator
             'title' => $title,
             'published_at' => $publishedAt,
             'summary' => $summary,
+            'content' => $content,
         ];
     }
+
 }

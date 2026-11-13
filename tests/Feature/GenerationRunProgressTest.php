@@ -91,6 +91,7 @@ class GenerationRunProgressTest extends TestCase
             'window_from' => $now->copy()->subDay(),
             'window_to' => $now,
             'status' => $status,
+            'events_status' => $stats['events_status'] ?? 'pending',
             'started_at' => $status === 'pending'
                 ? null
                 : $now->copy()->subMinutes(4),
@@ -106,6 +107,13 @@ class GenerationRunProgressTest extends TestCase
             'input_tokens' => $stats['input_tokens'] ?? 0,
             'output_tokens' => $stats['output_tokens'] ?? 0,
             'total_tokens' => $stats['total_tokens'] ?? 0,
+            'events_count' => $stats['events_count'] ?? 0,
+            'events_existing_count' =>
+                $stats['events_existing_count'] ?? 0,
+            'events_input_tokens' =>
+                $stats['events_input_tokens'] ?? 0,
+            'events_output_tokens' =>
+                $stats['events_output_tokens'] ?? 0,
             'error_message' => $status === 'failed'
                 ? 'Test discovery error'
                 : null,
@@ -114,26 +122,32 @@ class GenerationRunProgressTest extends TestCase
         ]);
     }
 
-    public function test_it_synchronizes_completed_discovery_runs_without_double_counting(): void
+    public function test_it_synchronizes_completed_runs_without_double_counting(): void
     {
         $context = $this->createGenerationRun();
 
         $this->createDiscoveryRun($context, 'completed', [
-            'found_count' => 3,
             'accepted_count' => 3,
             'google_search_count' => 1,
             'input_tokens' => 500,
             'output_tokens' => 100,
             'total_tokens' => 600,
+            'events_status' => 'completed',
+            'events_count' => 2,
+            'events_input_tokens' => 200,
+            'events_output_tokens' => 50,
         ]);
 
         $this->createDiscoveryRun($context, 'completed', [
-            'found_count' => 2,
             'accepted_count' => 2,
             'google_search_count' => 2,
             'input_tokens' => 700,
             'output_tokens' => 150,
             'total_tokens' => 850,
+            'events_status' => 'completed',
+            'events_count' => 1,
+            'events_input_tokens' => 100,
+            'events_output_tokens' => 30,
         ]);
 
         $service = app(GenerationRunService::class);
@@ -146,12 +160,38 @@ class GenerationRunProgressTest extends TestCase
         $this->assertSame(2, $run->completed_discovery_runs_count);
         $this->assertSame(0, $run->failed_discovery_runs_count);
         $this->assertSame(5, $run->articles_count);
+        $this->assertSame(3, $run->events_count);
         $this->assertSame(3, $run->google_search_count);
-        $this->assertSame(1200, $run->input_tokens);
-        $this->assertSame(250, $run->output_tokens);
-        $this->assertSame(1450, $run->total_tokens);
+        $this->assertSame(1500, $run->input_tokens);
+        $this->assertSame(330, $run->output_tokens);
+        $this->assertSame(1830, $run->total_tokens);
         $this->assertNotNull($run->finished_at);
     }
+
+    public function test_it_waits_for_event_processing_after_discovery(): void
+    {
+        $context = $this->createGenerationRun();
+
+        $this->createDiscoveryRun($context, 'completed', [
+            'accepted_count' => 3,
+            'events_status' => 'completed',
+            'events_count' => 2,
+        ]);
+
+        $this->createDiscoveryRun($context, 'completed', [
+            'accepted_count' => 2,
+            'events_status' => 'pending',
+        ]);
+
+        $run = app(GenerationRunService::class)
+            ->syncProgress($context['run']);
+
+        $this->assertSame('running', $run->status);
+        $this->assertSame(2, $run->completed_discovery_runs_count);
+        $this->assertSame(2, $run->events_count);
+        $this->assertNull($run->finished_at);
+    }
+
 
     public function test_it_marks_generation_failed_when_a_discovery_run_fails(): void
     {
@@ -163,20 +203,63 @@ class GenerationRunProgressTest extends TestCase
             'input_tokens' => 500,
             'output_tokens' => 100,
             'total_tokens' => 600,
+            'events_status' => 'pending',
         ]);
 
         $this->createDiscoveryRun($context, 'failed');
 
-        $run = app(GenerationRunService::class)
-            ->syncProgress($context['run']);
+        $service = app(GenerationRunService::class);
 
-        $this->assertSame('failed', $run->status);
+        // Discovery завершён, но Events ещё обрабатываются.
+        $run = $service->syncProgress($context['run']);
+
+        $this->assertSame('running', $run->status);
         $this->assertSame(2, $run->discovery_runs_count);
         $this->assertSame(1, $run->completed_discovery_runs_count);
         $this->assertSame(1, $run->failed_discovery_runs_count);
         $this->assertSame(3, $run->articles_count);
         $this->assertSame(1, $run->google_search_count);
         $this->assertSame(600, $run->total_tokens);
+        $this->assertNull($run->finished_at);
+
+        // Имитируем успешное завершение обработки Events.
+        DB::table('discovery_runs')
+            ->where('generation_run_id', $context['run']->id)
+            ->where('status', 'completed')
+            ->update([
+                'events_status' => 'completed',
+                'events_count' => 2,
+            ]);
+
+        // Теперь весь процесс должен завершиться с ошибкой Discovery.
+        $run = $service->syncProgress($context['run']);
+
+        $this->assertSame('failed', $run->status);
+        $this->assertSame(2, $run->events_count);
+        $this->assertSame(1, $run->failed_discovery_runs_count);
+        $this->assertNotNull($run->finished_at);
+    }
+
+
+    public function test_it_marks_generation_failed_when_event_processing_fails(): void
+    {
+        $context = $this->createGenerationRun();
+
+        $this->createDiscoveryRun($context, 'completed', [
+            'events_status' => 'completed',
+            'events_count' => 2,
+        ]);
+
+        $this->createDiscoveryRun($context, 'completed', [
+            'events_status' => 'failed',
+        ]);
+
+        $run = app(GenerationRunService::class)
+            ->syncProgress($context['run']);
+
+        $this->assertSame('failed', $run->status);
+        $this->assertSame(2, $run->completed_discovery_runs_count);
+        $this->assertSame(2, $run->events_count);
         $this->assertNotNull($run->finished_at);
     }
 
@@ -222,6 +305,7 @@ class GenerationRunProgressTest extends TestCase
         $this->assertSame(0, $run->completed_discovery_runs_count);
         $this->assertSame(0, $run->failed_discovery_runs_count);
         $this->assertSame(0, $run->articles_count);
+        $this->assertSame(0, $run->events_count);
         $this->assertSame(0, $run->google_search_count);
         $this->assertNull($run->started_at);
         $this->assertNull($run->finished_at);
@@ -232,7 +316,6 @@ class GenerationRunProgressTest extends TestCase
         $context = $this->createGenerationRun();
 
         $this->createDiscoveryRun($context, 'failed');
-
         $this->createDiscoveryRun($context, 'running');
 
         $run = app(GenerationRunService::class)
@@ -252,16 +335,20 @@ class GenerationRunProgressTest extends TestCase
         $this->createDiscoveryRun($context, 'completed', [
             'accepted_count' => 2,
             'total_tokens' => 300,
+            'events_status' => 'completed',
         ]);
 
         $this->createDiscoveryRun($context, 'completed', [
             'accepted_count' => 1,
             'total_tokens' => 200,
+            'events_status' => 'completed',
         ]);
 
         $service = app(GenerationRunService::class);
 
         $first = $service->syncProgress($context['run']);
+
+        $this->assertNotNull($first->finished_at);
 
         $finishedAt = $first->finished_at->toDateTimeString();
 

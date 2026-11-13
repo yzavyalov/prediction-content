@@ -83,19 +83,29 @@
                 Discovery
             </a>
 
+
             <a
-                href="/admin/events"
-                class="block rounded-lg px-4 py-2.5 hover:bg-gray-800"
+                href="{{ route('admin.events.index') }}"
+                @class([
+                    'block rounded-lg px-4 py-2.5 transition',
+                    'bg-gray-800 text-white font-medium' => request()->routeIs('admin.events.*'),
+                    'text-gray-300 hover:bg-gray-800 hover:text-white' => !request()->routeIs('admin.events.*'),
+                ])
             >
                 Events
             </a>
 
             <a
-                href="/admin/markets"
-                class="block rounded-lg px-4 py-2.5 hover:bg-gray-800"
+                href="{{ route('admin.markets.index') }}"
+                @class([
+                    'block rounded-lg px-4 py-2.5 transition',
+                    'bg-gray-800 text-white font-medium' => request()->routeIs('admin.markets.*'),
+                    'text-gray-300 hover:bg-gray-800 hover:text-white' => !request()->routeIs('admin.markets.*'),
+                ])
             >
                 Markets
             </a>
+
 
             <a
                 href="/admin/ai-attempts"

@@ -317,7 +317,7 @@ new class extends Component
                         </td>
 
                         <td class="px-5 py-4 text-sm">
-                            {{ $profile->categories->pluck('name')->join(', ') ?: '—' }}
+                            {{ $profile->categories->pluck('name')->join(', ') ?: '-'  }}
                         </td>
 
                         <td class="px-5 py-4 text-sm">
@@ -327,11 +327,11 @@ new class extends Component
                                     ->merge($profile->countryGroups->pluck('name'));
                             @endphp
 
-                            {{ $geo->isNotEmpty() ? $geo->join(', ') : '—' }}
+                            {{ $geo->isNotEmpty() ? $geo->join(', ') : '-' }}
                         </td>
 
                         <td class="px-5 py-4 text-sm">
-                            {{ $profile->languages->pluck('name')->join(', ') ?: '—' }}
+                            {{ $profile->languages->pluck('name')->join(', ') ?: '-'  }}
                         </td>
 
                         <td class="px-5 py-4 text-sm">
@@ -382,7 +382,12 @@ new class extends Component
     </div>
 
 
-    <div class="mt-8 overflow-hidden rounded-xl bg-white shadow-sm">
+    <div
+        class="mt-8 overflow-hidden rounded-xl bg-white shadow-sm"
+        @if ($generationRuns->contains(fn ($run) => $run->status === 'running'))
+            wire:poll.5s
+        @endif
+    >
         <div class="border-b border-gray-200 px-6 py-5">
             <h2 class="text-xl font-semibold">
                 Generation Runs
@@ -390,6 +395,9 @@ new class extends Component
 
             <p class="mt-1 text-sm text-gray-500">
                 Recent generation runs and discovery execution status.
+                @if ($generationRuns->contains(fn ($run) => $run->status === 'running'))
+                    <span class="text-blue-600">Auto-refreshing every 5 seconds.</span>
+                @endif
             </p>
         </div>
 
@@ -464,7 +472,7 @@ new class extends Component
                                     Running
                                 </span>
                             @else
-                                <span class="text-gray-400">—</span>
+                                <span class="text-gray-400">-</span>
                             @endif
 
                         </td>

@@ -37,22 +37,34 @@ class GeminiService
      * The caller decides which model should be used.
      * GeminiService does not contain business logic.
      */
+
     public function generate(
         string $model,
         string $prompt,
         bool $googleSearch = false,
+        bool $urlContext = false,
     ): array {
         $payload = [
             'model' => $model,
             'input' => $prompt,
         ];
 
+        $tools = [];
+
         if ($googleSearch) {
-            $payload['tools'] = [
-                [
-                    'type' => 'google_search',
-                ],
+            $tools[] = [
+                'type' => 'google_search',
             ];
+        }
+
+        if ($urlContext) {
+            $tools[] = [
+                'type' => 'url_context',
+            ];
+        }
+
+        if ($tools !== []) {
+            $payload['tools'] = $tools;
         }
 
         $response = Http::withHeaders([
@@ -70,6 +82,7 @@ class GeminiService
 
         return $response->json();
     }
+
 
     /**
      * Convenience method for a normal request
@@ -100,6 +113,24 @@ class GeminiService
             googleSearch: true,
         );
     }
+
+
+    /**
+     * Generate a response using URL Context.
+     *
+     * The prompt must contain the article URLs.
+     */
+    public function generateWithUrlContext(
+        string $model,
+        string $prompt,
+    ): array {
+        return $this->generate(
+            model: $model,
+            prompt: $prompt,
+            urlContext: true,
+        );
+    }
+
 
     private function endpoint(): string
     {

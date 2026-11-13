@@ -2,9 +2,10 @@
 
 namespace App\Services\Discovery;
 
+use App\Jobs\ProcessDiscoveryEvents;
 use App\Models\DiscoveryRun;
-use Throwable;
 use App\Services\Generation\GenerationRunService;
+use Throwable;
 
 class DiscoveryExecutor
 {
@@ -15,10 +16,8 @@ class DiscoveryExecutor
     ) {
     }
 
-
     public function execute(
         DiscoveryRun $run,
-        int $maxResults = 10,
     ): DiscoveryRun {
         $run = $this->runService->markRunning($run);
 
@@ -29,13 +28,16 @@ class DiscoveryExecutor
                 geo: $run->resolveGeo(),
                 from: $run->window_from,
                 to: $run->window_to,
-                maxResults: $maxResults,
+                onArticle: function (array $article) use ($run): void {
+                    $this->runService->processArticle(
+                        $run,
+                        $article,
+                    );
+                },
             );
 
-            $run = $this->runService->processArticles(
-                $run,
-                $result['articles'],
-            );
+            // Articles are already persisted during crawling.
+            // Do not call processArticles() again.
 
             $run = $this->runService->markCompleted(
                 $run,
@@ -64,7 +66,10 @@ class DiscoveryExecutor
             );
         }
 
+        ProcessDiscoveryEvents::dispatch(
+            discoveryRunId: $run->id,
+        );
+
         return $run;
     }
-
 }

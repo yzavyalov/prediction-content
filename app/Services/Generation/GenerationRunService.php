@@ -2,17 +2,15 @@
 
 namespace App\Services\Generation;
 
-use App\Models\Category;
 use App\Models\Country;
-use App\Models\CountryGroup;
 use App\Models\GenerationProfile;
 use App\Models\GenerationRun;
 use App\Models\Source;
 use App\Services\Discovery\DiscoveryRunService;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Collection;
-use InvalidArgumentException;
 use App\Jobs\ExecuteDiscoveryRun;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class GenerationRunService
 {
@@ -85,8 +83,6 @@ class GenerationRunService
         });
     }
 
-
-
     public function dispatch(GenerationRun $generationRun): int
     {
         return DB::transaction(function () use ($generationRun) {
@@ -117,16 +113,13 @@ class GenerationRunService
 
             foreach ($discoveryRuns as $discoveryRun) {
                 ExecuteDiscoveryRun::dispatch(
-                    discoveryRunId: $discoveryRun->id,
-                    maxResults: 10,
+                    $discoveryRun->id
                 )->afterCommit();
             }
 
             return $discoveryRuns->count();
         });
     }
-
-
 
     public function syncProgress(GenerationRun $generationRun): GenerationRun
     {
@@ -137,38 +130,118 @@ class GenerationRunService
 
             $stats = $run->discoveryRuns()
                 ->selectRaw("
-                COUNT(*) as total_count,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
-                COALESCE(SUM(accepted_count), 0) as articles_count,
-                COALESCE(SUM(google_search_count), 0) as search_count,
-                COALESCE(SUM(input_tokens), 0) as input_tokens_count,
-                COALESCE(SUM(output_tokens), 0) as output_tokens_count,
-                COALESCE(SUM(total_tokens), 0) as total_tokens_count
-            ")
+                    COUNT(*) as total_count,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                    COALESCE(SUM(accepted_count), 0) as articles_count,
+                    COALESCE(SUM(google_search_count), 0) as search_count,
+                    COALESCE(SUM(input_tokens), 0) as discovery_input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as discovery_output_tokens,
+                    COALESCE(SUM(total_tokens), 0) as discovery_total_tokens,
+                    SUM(CASE
+                        WHEN status = 'completed' AND events_status = 'completed'
+                        THEN 1 ELSE 0 END
+                    ) as completed_events_runs,
+                    SUM(CASE
+                        WHEN status = 'completed'
+                            AND events_status = 'completed'
+                            AND markets_dispatched_at IS NOT NULL
+                        THEN 1 ELSE 0 END
+                    ) as completed_market_dispatch_runs,
+                    SUM(CASE WHEN events_status = 'failed' THEN 1 ELSE 0 END) as failed_events_runs,
+                    COALESCE(SUM(events_count), 0) as events_count,
+                    COALESCE(SUM(events_input_tokens), 0) as events_input_tokens,
+                    COALESCE(SUM(events_output_tokens), 0) as events_output_tokens
+                ")
+                ->first();
+
+            // Use the pivot explicitly to avoid ONLY_FULL_GROUP_BY errors.
+            $marketStats = DB::table('market_generation_runs as mgr')
+                ->join(
+                    'generation_run_market_generation_run as link',
+                    'link.market_generation_run_id',
+                    '=',
+                    'mgr.id'
+                )
+                ->where('link.generation_run_id', $run->id)
+                ->selectRaw("
+                    COUNT(*) as total_count,
+                    SUM(CASE WHEN mgr.status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+                    SUM(CASE WHEN mgr.status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+                    COALESCE(SUM(mgr.markets_count), 0) as markets_count,
+                    COALESCE(SUM(
+                        CASE WHEN mgr.generation_run_id = ?
+                        THEN mgr.input_tokens ELSE 0 END
+                    ), 0) as input_tokens,
+                    COALESCE(SUM(
+                        CASE WHEN mgr.generation_run_id = ?
+                        THEN mgr.output_tokens ELSE 0 END
+                    ), 0) as output_tokens
+                ", [$run->id, $run->id])
                 ->first();
 
             $total = (int) $stats->total_count;
             $completed = (int) $stats->completed_count;
             $failed = (int) $stats->failed_count;
+            $completedEvents = (int) $stats->completed_events_runs;
+            $failedEvents = (int) $stats->failed_events_runs;
+            $completedMarketDispatchRuns = (int) $stats->completed_market_dispatch_runs;
 
-            $finished = $total > 0
+            $marketTotal = (int) $marketStats->total_count;
+            $marketCompleted = (int) $marketStats->completed_count;
+            $marketFailed = (int) $marketStats->failed_count;
+
+            $allDiscoveryFinished = $total > 0
                 && ($completed + $failed) === $total;
+
+            $allEventsFinished = $completed
+                === ($completedEvents + $failedEvents);
+
+            $allMarketDispatchFinished = $completedMarketDispatchRuns
+                === $completedEvents;
+
+            $allMarketsFinished = $allMarketDispatchFinished
+                && ($marketCompleted + $marketFailed) === $marketTotal;
+
+            $hasFailed = $failed > 0
+                || $failedEvents > 0
+                || $marketFailed > 0;
+
+            $finished = $allDiscoveryFinished
+                && $allEventsFinished
+                && $allMarketsFinished;
+
+            $marketInputTokens = (int) $marketStats->input_tokens;
+            $marketOutputTokens = (int) $marketStats->output_tokens;
+
+            $inputTokens = (int) $stats->discovery_input_tokens
+                + (int) $stats->events_input_tokens
+                + $marketInputTokens;
+
+            $outputTokens = (int) $stats->discovery_output_tokens
+                + (int) $stats->events_output_tokens
+                + $marketOutputTokens;
 
             $attributes = [
                 'discovery_runs_count' => $total,
                 'completed_discovery_runs_count' => $completed,
                 'failed_discovery_runs_count' => $failed,
                 'articles_count' => (int) $stats->articles_count,
+                'events_count' => (int) $stats->events_count,
+                'markets_count' => (int) $marketStats->markets_count,
                 'google_search_count' => (int) $stats->search_count,
-                'input_tokens' => (int) $stats->input_tokens_count,
-                'output_tokens' => (int) $stats->output_tokens_count,
-                'total_tokens' => (int) $stats->total_tokens_count,
+                'input_tokens' => $inputTokens,
+                'output_tokens' => $outputTokens,
+                'total_tokens' => (int) $stats->discovery_total_tokens
+                    + (int) $stats->events_input_tokens
+                    + (int) $stats->events_output_tokens
+                    + $marketInputTokens
+                    + $marketOutputTokens,
             ];
 
             if ($run->status !== 'pending') {
                 $attributes['status'] = $finished
-                    ? ($failed > 0 ? 'failed' : 'completed')
+                    ? ($hasFailed ? 'failed' : 'completed')
                     : 'running';
 
                 $attributes['finished_at'] = $finished
@@ -181,8 +254,6 @@ class GenerationRunService
             return $run->refresh();
         });
     }
-
-
 
     private function buildCombinations(
         GenerationProfile $profile
@@ -227,7 +298,6 @@ class GenerationRunService
             ]);
         })->values();
     }
-
 
     private function matchingGeos(
         Source $source,
@@ -286,5 +356,4 @@ class GenerationRunService
             ->orderBy('name')
             ->get();
     }
-
 }

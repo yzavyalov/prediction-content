@@ -13,11 +13,10 @@ class ExecuteDiscoveryRun implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 600;
+    public int $timeout = 1800;
 
     public function __construct(
         public readonly int $discoveryRunId,
-        public readonly int $maxResults = 10,
     ) {
     }
 
@@ -31,7 +30,6 @@ class ExecuteDiscoveryRun implements ShouldQueue
 
         $executor->execute(
             run: $run,
-            maxResults: $this->maxResults,
         );
     }
 }

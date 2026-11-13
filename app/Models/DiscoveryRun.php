@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use InvalidArgumentException;
 
 class DiscoveryRun extends Model
 {
@@ -28,6 +29,17 @@ class DiscoveryRun extends Model
         'output_tokens',
         'total_tokens',
         'error_message',
+
+        // Event Processing
+        'events_status',
+        'events_count',
+        'events_existing_count',
+        'events_started_at',
+        'events_finished_at',
+        'events_error_message',
+        'events_input_tokens',
+        'events_output_tokens',
+        'markets_dispatched_at',
     ];
 
     protected function casts(): array
@@ -45,6 +57,15 @@ class DiscoveryRun extends Model
             'input_tokens' => 'integer',
             'output_tokens' => 'integer',
             'total_tokens' => 'integer',
+
+            // Event Processing
+            'events_count' => 'integer',
+            'events_existing_count' => 'integer',
+            'events_started_at' => 'datetime',
+            'events_finished_at' => 'datetime',
+            'markets_dispatched_at' => 'datetime',
+            'events_input_tokens' => 'integer',
+            'events_output_tokens' => 'integer',
         ];
     }
 
@@ -73,7 +94,7 @@ class DiscoveryRun extends Model
         return match ($this->geo_type) {
             'country' => Country::findOrFail($this->geo_id),
             'country_group' => CountryGroup::findOrFail($this->geo_id),
-            default => throw new \InvalidArgumentException(
+            default => throw new InvalidArgumentException(
                 "Unsupported Discovery Run geo_type: {$this->geo_type}"
             ),
         };
@@ -86,4 +107,14 @@ class DiscoveryRun extends Model
             'discovery_run_articles'
         )->withPivot('created_at');
     }
+
+
+    public function events(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Event::class,
+            'discovery_run_event'
+        )->withTimestamps();
+    }
+
 }

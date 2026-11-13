@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class GenerationRun extends Model
 {
@@ -58,5 +59,24 @@ class GenerationRun extends Model
     public function discoveryRuns(): HasMany
     {
         return $this->hasMany(DiscoveryRun::class);
+    }
+
+    public function markets(): HasMany
+    {
+        return $this->hasMany(Market::class);
+    }
+
+
+    public function marketGenerationRuns(): HasMany
+    {
+        return $this->hasMany(MarketGenerationRun::class);
+    }
+
+    public function linkedMarketGenerationRuns(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            MarketGenerationRun::class,
+            'generation_run_market_generation_run'
+        )->withTimestamps();
     }
 }

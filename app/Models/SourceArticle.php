@@ -16,6 +16,7 @@ class SourceArticle extends Model
         'title',
         'published_at',
         'summary',
+        'content',
         'status',
     ];
 
@@ -37,5 +38,13 @@ class SourceArticle extends Model
             DiscoveryRun::class,
             'discovery_run_articles'
         )->withPivot('created_at');
+    }
+
+    public function events(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Event::class,
+            'event_source_article'
+        )->withTimestamps();
     }
 }
