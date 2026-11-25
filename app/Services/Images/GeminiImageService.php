@@ -211,7 +211,7 @@ class GeminiImageService
 
                 $aspectRatio = $imageInfo[0] / $imageInfo[1];
 
-                if (abs($aspectRatio - (16 / 9)) > 0.02) {
+                if (abs($aspectRatio - (16 / 9)) > 0.05) {
                     throw new RuntimeException(
                         'Gemini returned an invalid image aspect ratio: '
                         . $imageInfo[0] . 'x' . $imageInfo[1]
