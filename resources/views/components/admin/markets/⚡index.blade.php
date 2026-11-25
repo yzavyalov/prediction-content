@@ -646,23 +646,10 @@ new class extends Component
         @endif
     </div>
 
-    {{-- Loading indicator --}}
-
-    <div
-        wire:loading.delay
-        class="mb-3 text-sm text-gray-500"
-        role="status"
-    >
-        Loading markets...
-    </div>
-
 
     {{-- Markets table --}}
 
-    <div
-        wire:loading.class="opacity-50"
-        class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm transition-opacity"
-    >
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
 
         <table class="w-full text-left">
 
