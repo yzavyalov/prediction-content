@@ -19,7 +19,12 @@ class GenerateMarketImage implements ShouldQueue
 
     public int $timeout = 240;
 
-    public int $tries = 20;
+    public int $tries = 0;
+
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(24);
+    }
 
     private const MAX_GENERATION_ATTEMPTS = 3;
 
@@ -48,10 +53,16 @@ class GenerateMarketImage implements ShouldQueue
             return;
         }
 
-        if (
-            $image->status === 'failed'
-            && $image->attempts >= self::MAX_GENERATION_ATTEMPTS
-        ) {
+        if ($image->attempts >= self::MAX_GENERATION_ATTEMPTS) {
+            if ($image->status !== 'failed') {
+                $image->update([
+                    'status' => 'failed',
+                    'is_selected' => false,
+                    'error_message' => 'Maximum image generation attempts reached.',
+                    'completed_at' => now(),
+                ]);
+            }
+
             return;
         }
 
@@ -247,6 +258,24 @@ class GenerateMarketImage implements ShouldQueue
 
             report($exception);
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        MarketImage::query()
+            ->whereKey($this->marketImageId)
+            ->whereIn('status', ['pending', 'processing'])
+            ->update([
+                'status' => 'failed',
+                'is_selected' => false,
+                'error_message' => mb_substr(
+                    $exception?->getMessage()
+                    ?? 'Image generation job failed.',
+                    0,
+                    5000
+                ),
+                'completed_at' => now(),
+            ]);
     }
 
     private function getMarketTitle(Market $market): string
