@@ -16,11 +16,15 @@ class ProcessDiscoveryEvents implements ShouldQueue
 
     public int $tries = 5;
 
-    public int $timeout = 600;
+    public int $timeout = 1800;
+
+    public bool $generateMarkets = true;
 
     public function __construct(
         public readonly int $discoveryRunId,
+        bool $generateMarkets = true,
     ) {
+        $this->generateMarkets = $generateMarkets;
     }
 
     /**
@@ -33,7 +37,7 @@ class ProcessDiscoveryEvents implements ShouldQueue
                 'discovery-events-' . $this->discoveryRunId
             ))
                 ->releaseAfter(60)
-                ->expireAfter(900),
+                ->expireAfter(1860),
         ];
     }
 
@@ -88,6 +92,10 @@ class ProcessDiscoveryEvents implements ShouldQueue
              * MarketGenerationRunService handles existing
              * pending or running generation runs.
              */
+            if (!$this->generateMarkets) {
+                return;
+            }
+
             foreach ($events as $event) {
                 if ($event->event_type === 'observed') {
                     continue;

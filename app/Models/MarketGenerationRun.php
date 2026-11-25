@@ -18,6 +18,12 @@ class MarketGenerationRun extends Model
         'error_message',
         'started_at',
         'finished_at',
+        'gemini_interaction_id',
+        'gemini_stage',
+        'gemini_started_at',
+        'gemini_last_checked_at',
+        'gemini_first_response',
+        'gemini_first_usage',
     ];
 
     protected function casts(): array
@@ -30,6 +36,10 @@ class MarketGenerationRun extends Model
             'output_tokens' => 'integer',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
+            'gemini_started_at' => 'datetime',
+            'gemini_last_checked_at' => 'datetime',
+            'gemini_first_response' => 'array',
+            'gemini_first_usage' => 'array',
         ];
     }
 

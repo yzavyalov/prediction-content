@@ -1,16 +1,30 @@
 <?php
 
+use App\Models\Source;
+use App\Models\SourceArticle;
+use App\Models\Event;
+use App\Models\Market;
 use Livewire\Component;
 
 new class extends Component
 {
     public string $title = 'Dashboard';
+
+    public function with(): array
+    {
+        return [
+            'sourcesCount' => Source::query()->count(),
+            'articlesCount' => SourceArticle::query()->count(),
+            'eventsCount' => Event::query()->count(),
+            'marketsCount' => Market::query()->count(),
+        ];
+    }
 };
 ?>
 
 <div>
     <div class="mb-8">
-        <h1 class="text-3xl font-bold">
+        <h1 class="text-3xl font-bold text-gray-900">
             Dashboard
         </h1>
 
@@ -26,8 +40,8 @@ new class extends Component
                 Sources
             </div>
 
-            <div class="mt-2 text-3xl font-semibold">
-                0
+            <div class="mt-2 text-3xl font-semibold text-gray-900">
+                {{ number_format($sourcesCount) }}
             </div>
         </div>
 
@@ -36,8 +50,8 @@ new class extends Component
                 Discovered Articles
             </div>
 
-            <div class="mt-2 text-3xl font-semibold">
-                0
+            <div class="mt-2 text-3xl font-semibold text-gray-900">
+                {{ number_format($articlesCount) }}
             </div>
         </div>
 
@@ -46,8 +60,8 @@ new class extends Component
                 Events
             </div>
 
-            <div class="mt-2 text-3xl font-semibold">
-                0
+            <div class="mt-2 text-3xl font-semibold text-gray-900">
+                {{ number_format($eventsCount) }}
             </div>
         </div>
 
@@ -56,8 +70,8 @@ new class extends Component
                 Markets
             </div>
 
-            <div class="mt-2 text-3xl font-semibold">
-                0
+            <div class="mt-2 text-3xl font-semibold text-gray-900">
+                {{ number_format($marketsCount) }}
             </div>
         </div>
 

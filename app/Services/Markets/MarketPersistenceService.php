@@ -5,6 +5,7 @@ namespace App\Services\Markets;
 use App\Models\Event;
 use App\Models\Market;
 use Illuminate\Support\Facades\DB;
+use App\Models\Country;
 
 class MarketPersistenceService
 {
@@ -91,6 +92,35 @@ class MarketPersistenceService
                             ]);
                     }
                 }
+
+                // Determine market countries from translation languages.
+                $languageCountries = config('market_geo.language_countries', []);
+
+                $countryCodes = [];
+
+                foreach ($data['translations'] as $translationData) {
+                    $locale = strtolower(trim($translationData['locale']));
+
+                    foreach ($languageCountries[$locale] ?? [] as $countryCode) {
+                        $countryCodes[] = strtoupper($countryCode);
+                    }
+                }
+
+                $countryCodes = array_unique($countryCodes);
+
+// Find countries in the existing country directory.
+                $countryIds = Country::query()
+                    ->whereIn('iso2', $countryCodes)
+                    ->pluck('id')
+                    ->all();
+
+// Always include the original event country.
+                if ($event->country_id !== null) {
+                    $countryIds[] = $event->country_id;
+                }
+
+// Save market countries without duplicates.
+                $market->countries()->sync(array_unique($countryIds));
 
                 $created++;
             }

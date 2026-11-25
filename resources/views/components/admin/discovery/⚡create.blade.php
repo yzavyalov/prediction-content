@@ -8,7 +8,6 @@ use App\Models\GenerationProfile;
 use App\Models\Source;
 use App\Services\Discovery\DiscoveryRunService;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -24,12 +23,21 @@ new #[Layout('layouts.app')] class extends Component
     public string $windowFrom = '';
     public string $windowTo = '';
 
-    public int $maxResults = 10;
+    public string $discoveryMode = 'existing';
+    public bool $extractEvents = true;
+    public bool $generateMarkets = false;
+
+    public function updatedExtractEvents(): void
+    {
+        if (!$this->extractEvents) {
+            $this->generateMarkets = false;
+        }
+    }
 
     public function mount(): void
     {
         $this->windowFrom = now()
-            ->subDay()
+            ->subDays(7)
             ->format('Y-m-d\TH:i');
 
         $this->windowTo = now()
@@ -115,8 +123,16 @@ new #[Layout('layouts.app')] class extends Component
             'geoId' => ['required', 'integer'],
             'windowFrom' => ['required', 'date'],
             'windowTo' => ['required', 'date', 'after:windowFrom'],
-            'maxResults' => ['required', 'integer', 'min:1', 'max:50'],
+            'discoveryMode' => ['required', 'in:full,existing'],
+            'extractEvents' => ['required', 'boolean'],
+            'generateMarkets' => ['required', 'boolean'],
         ]);
+
+        if ($validated['generateMarkets'] && !$validated['extractEvents']) {
+            throw ValidationException::withMessages([
+                'generateMarkets' => 'Market generation requires event extraction.',
+            ]);
+        }
 
         $source = Source::findOrFail($validated['sourceId']);
         $profile = GenerationProfile::findOrFail($validated['profileId']);
@@ -166,6 +182,17 @@ new #[Layout('layouts.app')] class extends Component
             ]);
         }
 
+        $parameters = array_map(
+            fn ($parameter) => $parameter->getName(),
+            (new \ReflectionMethod(ExecuteDiscoveryRun::class, '__construct'))->getParameters()
+        );
+
+        if (array_diff(['discoveryMode', 'extractEvents', 'generateMarkets'], $parameters)) {
+            throw ValidationException::withMessages([
+                'discoveryMode' => 'Discovery execution modes are not yet enabled on the backend.',
+            ]);
+        }
+
         $run = $service->create(
             profile: $profile,
             source: $source,
@@ -178,7 +205,9 @@ new #[Layout('layouts.app')] class extends Component
         try {
             ExecuteDiscoveryRun::dispatch(
                 $run->id,
-                $validated['maxResults'],
+                discoveryMode: $validated['discoveryMode'],
+                extractEvents: $validated['extractEvents'],
+                generateMarkets: $validated['generateMarkets'],
             )->onConnection('database');
         } catch (\Throwable $e) {
             $run->delete();
@@ -379,25 +408,40 @@ new #[Layout('layouts.app')] class extends Component
                     @enderror
                 </div>
 
-                <div>
-                    <label class="mb-2 block text-sm font-medium text-slate-700">
-                        Max Results
-                    </label>
-
-                    <input
-                        type="number"
-                        min="1"
-                        max="50"
-                        wire:model="maxResults"
-                        class="w-full rounded-lg border border-slate-300 px-3 py-2"
-                    >
-
-                    @error('maxResults')
-                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-                    @enderror
-                </div>
-
             </div>
+        </div>
+
+        <div class="space-y-4 border-t border-slate-200 pt-5">
+            <h2 class="text-lg font-semibold text-slate-900">Discovery Mode</h2>
+            <label class="flex items-center gap-3">
+                <input type="radio" wire:model="discoveryMode" value="full">
+                <span>Full Discovery - crawl and reuse articles</span>
+            </label>
+            <label class="flex items-center gap-3">
+                <input type="radio" wire:model="discoveryMode" value="existing">
+                <span>Existing Articles Only - no crawling</span>
+            </label>
+            @error('discoveryMode')
+            <p class="text-sm text-red-600">{{ $message }}</p>
+            @enderror
+        </div>
+
+        <div class="space-y-4 border-t border-slate-200 pt-5">
+            <h2 class="text-lg font-semibold text-slate-900">Processing Options</h2>
+            <label class="flex items-center gap-3">
+                <input type="checkbox" wire:model.live="extractEvents">
+                <span>Extract Events - including deduplication</span>
+            </label>
+            @error('extractEvents')
+            <p class="text-sm text-red-600">{{ $message }}</p>
+            @enderror
+            <label class="flex items-center gap-3">
+                <input type="checkbox" wire:model="generateMarkets" @disabled(!$extractEvents)>
+                <span>Generate Markets</span>
+            </label>
+            @error('generateMarkets')
+            <p class="text-sm text-red-600">{{ $message }}</p>
+            @enderror
         </div>
 
         <div class="flex items-center justify-end gap-3 border-t border-slate-200 pt-5">

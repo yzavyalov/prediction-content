@@ -21,7 +21,6 @@ new class extends Component
     public array $country_ids = [];
     public array $country_group_ids = [];
 
-    public string $status = 'draft';
     public int $priority = 50;
     public int $discovery_frequency_minutes = 120;
 
@@ -81,11 +80,6 @@ new class extends Component
                 Rule::exists('country_groups', 'id')->where('is_active', true),
             ],
 
-            'status' => [
-                'required',
-                Rule::in(['draft', 'testing', 'active', 'disabled']),
-            ],
-
             'priority' => [
                 'required',
                 'integer',
@@ -123,7 +117,6 @@ new class extends Component
                 'domain' => strtolower(trim($validated['domain'])),
                 'base_url' => rtrim($validated['base_url'], '/'),
                 'language_id' => $validated['language_id'],
-                'status' => $validated['status'],
                 'priority' => $validated['priority'],
                 'discovery_frequency_minutes' => $validated['discovery_frequency_minutes'],
                 'notes' => $validated['notes'] ?: null,
@@ -174,7 +167,7 @@ new class extends Component
             href="{{ route('admin.sources.index') }}"
             class="text-sm text-gray-500 hover:text-gray-900"
         >
-            ← Back to Sources
+            в†ђ Back to Sources
         </a>
 
         <h1 class="mt-3 text-3xl font-bold">
@@ -357,23 +350,7 @@ new class extends Component
             <div>
                 <h2 class="text-lg font-semibold">Discovery settings</h2>
 
-                <div class="mt-4 grid grid-cols-1 gap-5 md:grid-cols-3">
-                    <div>
-                        <label class="mb-2 block text-sm font-medium">
-                            Status
-                        </label>
-
-                        <select
-                            wire:model="status"
-                            class="w-full rounded-lg border border-gray-300 px-3 py-2.5"
-                        >
-                            <option value="draft">Draft</option>
-                            <option value="testing">Testing</option>
-                            <option value="active">Active</option>
-                            <option value="disabled">Disabled</option>
-                        </select>
-                    </div>
-
+                <div class="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
                     <div>
                         <label class="mb-2 block text-sm font-medium">
                             Priority

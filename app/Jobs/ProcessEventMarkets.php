@@ -16,7 +16,7 @@ class ProcessEventMarkets implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 1;
 
-    public int $timeout = 600;
+    public int $timeout = 120;
 
     public function __construct(
         public readonly int $marketGenerationRunId

@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Market extends Model
 {
@@ -70,5 +72,44 @@ class Market extends Model
     public function translations(): HasMany
     {
         return $this->hasMany(MarketTranslation::class);
+    }
+
+    /**
+     * All generated images, including previous versions.
+     */
+    public function images(): HasMany
+    {
+        return $this->hasMany(MarketImage::class)
+            ->orderByDesc('id');
+    }
+
+    /**
+     * Image currently selected for preview and export.
+     */
+    public function selectedImage(): HasOne
+    {
+        return $this->hasOne(MarketImage::class)
+            ->where('is_selected', true)
+            ->where('status', 'completed')
+            ->whereNotNull('path')
+            ->latestOfMany();
+    }
+
+    /**
+     * Export status for wrangle.win.
+     */
+    public function marketExport(): HasOne
+    {
+        return $this->hasOne(MarketExport::class);
+    }
+
+    public function countries(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Country::class,
+            'market_country',
+            'market_id',
+            'country_id'
+        );
     }
 }

@@ -2,14 +2,19 @@
 
 use App\Models\Event;
 use App\Models\Market;
+use App\Models\MarketImage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 
 new class extends Component
 {
+    use WithFileUploads;
+
     public ?int $event_id = null;
 
     public string $question = '';
@@ -19,6 +24,8 @@ new class extends Component
 
     public string $finish_at = '';
     public string $resolution_at = '';
+
+    public $marketImage = null;
 
     public array $outcomes = [
         ['title' => ''],
@@ -98,6 +105,13 @@ new class extends Component
                 'after_or_equal:finish_at',
             ],
 
+            'marketImage' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
+
             'outcomes' => [
                 'required',
                 'array',
@@ -131,7 +145,7 @@ new class extends Component
                 ]);
             }
 
-            $usedTitles[] = $titleKey;
+            $usedTitles[] = $title;
 
             $baseCode = Str::slug($title, '_');
 
@@ -158,25 +172,94 @@ new class extends Component
             ];
         }
 
-        $market = DB::transaction(function () use (
-            $validated,
-            $normalizedOutcomes
-        ) {
-            $market = Market::create([
-                'event_id' => $validated['event_id'],
-                'question' => trim($validated['question']),
-                'description' => $validated['description'] ?: null,
-                'resolution_rules' => trim($validated['resolution_rules']),
-                'source_locale' => strtolower(trim($validated['source_locale'])),
-                'finish_at' => $validated['finish_at'],
-                'resolution_at' => $validated['resolution_at'],
-                'status' => 'draft',
-            ]);
+        $storedImagePath = null;
 
-            $market->outcomes()->createMany($normalizedOutcomes);
+        try {
+            $market = DB::transaction(function () use (
+                $validated,
+                $normalizedOutcomes,
+                &$storedImagePath
+            ) {
+                $market = Market::create([
+                    'event_id' => $validated['event_id'],
+                    'question' => trim($validated['question']),
+                    'description' => $validated['description'] ?: null,
+                    'resolution_rules' => trim($validated['resolution_rules']),
+                    'source_locale' => strtolower(
+                        trim($validated['source_locale'])
+                    ),
+                    'finish_at' => $validated['finish_at'],
+                    'resolution_at' => $validated['resolution_at'],
+                    'status' => 'draft',
+                ]);
 
-            return $market;
-        });
+                $market->outcomes()->createMany($normalizedOutcomes);
+
+                if ($this->marketImage !== null) {
+                    $file = $this->marketImage;
+
+                    $extension = strtolower(
+                        $file->extension()
+                    );
+
+                    if ($extension === 'jpeg') {
+                        $extension = 'jpg';
+                    }
+
+                    $storedImagePath = $file->storeAs(
+                        'market-images/' . $market->id,
+                        Str::uuid() . '.' . $extension,
+                        'public'
+                    );
+
+                    if (!$storedImagePath) {
+                        throw new RuntimeException(
+                            'Unable to save uploaded market image.'
+                        );
+                    }
+
+                    $imageData = Storage::disk('public')
+                        ->get($storedImagePath);
+
+                    $dimensions = getimagesizefromstring(
+                        $imageData
+                    );
+
+                    if ($dimensions === false) {
+                        throw new RuntimeException(
+                            'Unable to determine uploaded image dimensions.'
+                        );
+                    }
+
+                    MarketImage::query()->create([
+                        'market_id' => $market->id,
+                        'provider' => 'upload',
+                        'model' => null,
+                        'prompt' => null,
+                        'disk' => 'public',
+                        'path' => $storedImagePath,
+                        'mime_type' => $dimensions['mime'],
+                        'width' => $dimensions[0],
+                        'height' => $dimensions[1],
+                        'size_bytes' => strlen($imageData),
+                        'status' => 'completed',
+                        'attempts' => 0,
+                        'error_message' => null,
+                        'is_selected' => true,
+                        'started_at' => now(),
+                        'completed_at' => now(),
+                    ]);
+                }
+
+                return $market;
+            });
+        } catch (\Throwable $exception) {
+            if ($storedImagePath !== null) {
+                Storage::disk('public')->delete($storedImagePath);
+            }
+
+            throw $exception;
+        }
 
         return $this->redirectRoute(
             'admin.markets.show',
@@ -199,7 +282,9 @@ new class extends Component
 <div>
     <div class="mb-8">
         <a
-            href="{{ $event_id ? route('admin.events.show', $event_id) : route('admin.markets.index') }}"
+            href="{{ $event_id
+                ? route('admin.events.show', $event_id)
+                : route('admin.markets.index') }}"
             class="text-sm text-gray-500 hover:text-gray-900"
         >
             ← Back
@@ -219,7 +304,6 @@ new class extends Component
             wire:submit="save"
             class="space-y-8 rounded-xl bg-white p-6 shadow-sm"
         >
-
             @if ($errors->any())
                 <div class="rounded-lg border border-red-200 bg-red-50 p-4">
                     <div class="font-medium text-red-800">
@@ -387,6 +471,59 @@ new class extends Component
                 </div>
             </section>
 
+            {{-- Market Image --}}
+            <section>
+                <h2 class="text-lg font-semibold">
+                    Market Image
+                </h2>
+
+                <p class="mt-1 text-sm text-gray-500">
+                    Optionally upload an image for this market.
+                    Accepted formats: JPG, PNG, WebP. Maximum 5 MB.
+                </p>
+
+                <div class="mt-4">
+                    <input
+                        type="file"
+                        wire:model="marketImage"
+                        accept="image/jpeg,image/png,image/webp"
+                        class="block w-full rounded-lg border border-gray-300 p-3 text-sm text-gray-700"
+                    >
+
+                    <div
+                        wire:loading
+                        wire:target="marketImage"
+                        class="mt-3 text-sm text-gray-500"
+                    >
+                        Uploading image...
+                    </div>
+
+                    @error('marketImage')
+                    <p class="mt-2 text-sm text-red-600">
+                        {{ $message }}
+                    </p>
+                    @enderror
+                </div>
+
+                @if ($marketImage)
+                    <div class="mt-4">
+                        <p class="mb-2 text-sm font-medium text-gray-700">
+                            Image Preview
+                        </p>
+
+                        <img
+                            src="{{ $marketImage->temporaryUrl() }}"
+                            alt="Market image preview"
+                            class="max-h-72 max-w-full rounded-lg border border-gray-200 object-contain"
+                        >
+
+                        <p class="mt-2 text-xs text-gray-500">
+                            {{ $marketImage->getClientOriginalName() }}
+                        </p>
+                    </div>
+                @endif
+            </section>
+
             {{-- Outcomes --}}
             <section>
                 <div class="flex items-center justify-between gap-4">
@@ -468,7 +605,9 @@ new class extends Component
             {{-- Actions --}}
             <div class="flex justify-end gap-3 border-t border-gray-100 pt-6">
                 <a
-                    href="{{ $event_id ? route('admin.events.show', $event_id) : route('admin.markets.index') }}"
+                    href="{{ $event_id
+                        ? route('admin.events.show', $event_id)
+                        : route('admin.markets.index') }}"
                     class="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium hover:bg-gray-50"
                 >
                     Cancel
@@ -477,7 +616,7 @@ new class extends Component
                 <button
                     type="submit"
                     wire:loading.attr="disabled"
-                    wire:target="save"
+                    wire:target="save,marketImage"
                     class="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
                 >
                     <span wire:loading.remove wire:target="save">

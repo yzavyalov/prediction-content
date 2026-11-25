@@ -83,6 +83,7 @@ Route::middleware(['auth', 'admin.access'])
             'admin.markets.create'
         )->name('events.markets.create');
 
+
         // Users
         Route::middleware('can:manage-users')->group(function () {
             Route::livewire('/users', 'admin.users.index')

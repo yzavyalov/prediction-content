@@ -86,4 +86,9 @@ return [
         ],
     ],
 
+    'wrangle' => [
+        'url' => env('WRANGLE_API_URL'),
+        'import_secret' => env('CONTENT_IMPORT_SECRET'),
+    ],
+
 ];

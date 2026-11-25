@@ -151,4 +151,86 @@ class GeminiService
             )
         );
     }
+
+
+    public function startBackground(
+        string $model,
+        string $prompt,
+        bool $googleSearch = false,
+        bool $urlContext = false,
+    ): array {
+        $payload = [
+            'model' => $model,
+            'input' => $prompt,
+            'background' => true,
+            'store' => true,
+        ];
+
+        $tools = [];
+
+        if ($googleSearch) {
+            $tools[] = ['type' => 'google_search'];
+        }
+
+        if ($urlContext) {
+            $tools[] = ['type' => 'url_context'];
+        }
+
+        if ($tools !== []) {
+            $payload['tools'] = $tools;
+        }
+
+        $response = Http::withHeaders([
+            'x-goog-api-key' => $this->apiKey,
+            'Content-Type' => 'application/json',
+            'Api-Revision' => '2026-05-20',
+        ])
+            ->acceptJson()
+            ->connectTimeout(15)
+            ->timeout(60)
+            ->post($this->endpoint(), $payload);
+
+        $this->ensureSuccessful($response);
+
+        $data = $response->json();
+
+        if (!is_array($data) || empty($data['id'])) {
+            throw new RuntimeException(
+                'Gemini did not return a background interaction ID.'
+            );
+        }
+
+        return $data;
+    }
+
+    public function getBackground(string $interactionId): array
+    {
+        if (!preg_match('/^[A-Za-z0-9_-]+$/', $interactionId)) {
+            throw new RuntimeException(
+                'Invalid Gemini interaction ID.'
+            );
+        }
+
+        $response = Http::withHeaders([
+            'x-goog-api-key' => $this->apiKey,
+            'Api-Revision' => '2026-05-20',
+        ])
+            ->acceptJson()
+            ->connectTimeout(15)
+            ->timeout(60)
+            ->get($this->endpoint() . '/' . $interactionId);
+
+        $this->ensureSuccessful($response);
+
+        $data = $response->json();
+
+        if (!is_array($data)) {
+            throw new RuntimeException(
+                'Gemini returned an invalid interaction response.'
+            );
+        }
+
+        return $data;
+    }
+
 }

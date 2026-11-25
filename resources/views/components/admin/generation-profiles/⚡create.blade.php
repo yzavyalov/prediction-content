@@ -23,7 +23,7 @@ new class extends Component
     public array $source_ids = [];
     public string $source_search = '';
 
-    public int $freshness_minutes = 1440;
+    public int $freshness_minutes = 10080;
     public int $target_markets_per_run = 10;
 
     public string $status = 'draft';

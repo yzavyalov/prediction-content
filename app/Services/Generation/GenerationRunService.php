@@ -17,6 +17,7 @@ class GenerationRunService
     public function __construct(
         private readonly GenerationSourceSelector $sourceSelector,
         private readonly DiscoveryRunService $discoveryRunService,
+        private readonly SourceArticleCleanupService $articleCleanupService,
     ) {
     }
 
@@ -127,6 +128,10 @@ class GenerationRunService
             $run = GenerationRun::query()
                 ->lockForUpdate()
                 ->findOrFail($generationRun->id);
+
+            if (in_array($run->status, ['completed', 'failed'], true)) {
+                return $run;
+            }
 
             $stats = $run->discoveryRuns()
                 ->selectRaw("
@@ -240,13 +245,19 @@ class GenerationRunService
             ];
 
             if ($run->status !== 'pending') {
-                $attributes['status'] = $finished
-                    ? ($hasFailed ? 'failed' : 'completed')
-                    : 'running';
+                if ($finished && !$hasFailed) {
+                    // Cleanup must succeed before marking generation completed.
+                    $this->articleCleanupService->cleanup($run);
 
-                $attributes['finished_at'] = $finished
-                    ? ($run->finished_at ?? now())
-                    : null;
+                    $attributes['status'] = 'completed';
+                    $attributes['finished_at'] = $run->finished_at ?? now();
+                } elseif ($hasFailed) {
+                    $attributes['status'] = 'failed';
+                    $attributes['finished_at'] = $run->finished_at ?? now();
+                } else {
+                    $attributes['status'] = 'running';
+                    $attributes['finished_at'] = null;
+                }
             }
 
             $run->update($attributes);

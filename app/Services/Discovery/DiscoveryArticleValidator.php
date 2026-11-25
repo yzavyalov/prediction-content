@@ -46,9 +46,13 @@ class DiscoveryArticleValidator
             return null;
         }
 
-        // No publication date window restriction.
-        // Historical articles are allowed.
-        // Event date filtering happens during Event Extraction.
+        // The publication date must be within the fixed Discovery window.
+        if (!$publishedAt->betweenIncluded(
+            $run->window_from,
+            $run->window_to
+        )) {
+            return null;
+        }
 
         $summary = $article['summary'] ?? null;
 

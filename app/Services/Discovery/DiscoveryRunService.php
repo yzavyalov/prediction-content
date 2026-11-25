@@ -10,6 +10,7 @@ use App\Models\GenerationProfile;
 use App\Models\Source;
 use App\Models\SourceArticle;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class DiscoveryRunService
@@ -47,32 +48,36 @@ class DiscoveryRunService
         ]);
     }
 
+    /**
+     * Start or resume a Discovery Run.
+     *
+     * The discovery window is defined at creation time
+     * and remains unchanged throughout the entire run.
+     *
+     * Counters are preserved when an existing run is resumed.
+     */
     public function markRunning(DiscoveryRun $run): DiscoveryRun
     {
+        $run->refresh();
+
         if ($run->status !== 'pending') {
             throw new InvalidArgumentException(
                 'Only a pending Discovery Run can be started.'
             );
         }
 
-        $startedAt = now();
-
         $attributes = [
             'status' => 'running',
-            'started_at' => $startedAt,
             'error_message' => null,
-            'found_count' => 0,
-            'accepted_count' => 0,
-            'rejected_count' => 0,
+            'finished_at' => null,
         ];
 
-        if ($run->generation_run_id !== null) {
-            $freshnessMinutes = $run->generationProfile->freshness_minutes;
+        if ($run->started_at === null) {
+            $attributes['started_at'] = now();
 
-            $attributes['window_from'] = $startedAt->copy()
-                ->subMinutes($freshnessMinutes);
-
-            $attributes['window_to'] = $startedAt->copy();
+            $attributes['found_count'] = 0;
+            $attributes['accepted_count'] = 0;
+            $attributes['rejected_count'] = 0;
         }
 
         $run->update($attributes);
@@ -80,7 +85,11 @@ class DiscoveryRunService
         return $run->refresh();
     }
 
-
+    /**
+     * Persist an article and attach it to the Discovery Run.
+     *
+     * Existing articles are reused rather than duplicated.
+     */
     public function storeArticle(
         DiscoveryRun $run,
         array $article,
@@ -107,7 +116,6 @@ class DiscoveryRunService
             ],
         );
 
-        // Fill missing content without overwriting existing text.
         if (
             empty($sourceArticle->content)
             && $content !== null
@@ -125,11 +133,11 @@ class DiscoveryRunService
         return $sourceArticle;
     }
 
-
     /**
-     * Validate and persist one discovered article immediately.
+     * Validate and persist one article.
      *
-     * Returns true when the article passes validation.
+     * An article already associated with this run
+     * is not counted again when crawling resumes.
      */
     public function processArticle(
         DiscoveryRun $run,
@@ -153,18 +161,30 @@ class DiscoveryRunService
             return false;
         }
 
-        $this->storeArticle($run, $validated);
+        DB::transaction(function () use ($run, $validated): void {
+            $existingArticle = SourceArticle::query()
+                ->where('source_id', $run->source_id)
+                ->where('url_hash', $validated['url_hash'])
+                ->first();
 
-        $run->increment('found_count');
-        $run->increment('accepted_count');
+            $alreadyAttached = $existingArticle !== null
+                && $run->sourceArticles()
+                    ->whereKey($existingArticle->id)
+                    ->exists();
+
+            $this->storeArticle($run, $validated);
+
+            if (!$alreadyAttached) {
+                $run->increment('found_count');
+                $run->increment('accepted_count');
+            }
+        });
 
         return true;
     }
 
     /**
      * Process a batch of articles.
-     *
-     * Counters accumulate instead of being reset after each batch.
      */
     public function processArticles(
         DiscoveryRun $run,
@@ -190,19 +210,57 @@ class DiscoveryRunService
         return $run->refresh();
     }
 
+    /**
+     * Pause a Discovery Run while preserving progress.
+     *
+     * The queue itself remains managed by
+     * SourceDiscoveryService.
+     */
+    public function markPending(DiscoveryRun $run): DiscoveryRun
+    {
+        $run->refresh();
+
+        if ($run->status !== 'running') {
+            throw new InvalidArgumentException(
+                'Only a running Discovery Run can be paused.'
+            );
+        }
+
+        $run->update([
+            'status' => 'pending',
+            'finished_at' => null,
+        ]);
+
+        return $run->refresh();
+    }
+
+    /**
+     * Complete only when the crawler reports
+     * that no work remains.
+     */
     public function markCompleted(
         DiscoveryRun $run,
         array $usage = [],
+        bool $crawlComplete = false,
     ): DiscoveryRun {
+        $run->refresh();
+
         if ($run->status !== 'running') {
             throw new InvalidArgumentException(
                 'Only a running Discovery Run can be completed.'
             );
         }
 
+        if (!$crawlComplete) {
+            throw new InvalidArgumentException(
+                'Discovery cannot be completed while crawling is unfinished.'
+            );
+        }
+
         $run->update([
             'status' => 'completed',
             'finished_at' => now(),
+            'error_message' => null,
             'google_search_count' => (int) (
                 $usage['google_search_count'] ?? 0
             ),
@@ -224,6 +282,8 @@ class DiscoveryRunService
         DiscoveryRun $run,
         string $errorMessage,
     ): DiscoveryRun {
+        $run->refresh();
+
         if ($run->status !== 'running') {
             throw new InvalidArgumentException(
                 'Only a running Discovery Run can be failed.'

@@ -23,6 +23,10 @@ class Source extends Model
         'created_by',
     ];
 
+    protected $attributes = [
+        'status' => 'active',
+    ];
+
     protected function casts(): array
     {
         return [

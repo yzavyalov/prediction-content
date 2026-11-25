@@ -22,3 +22,20 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local backup files
+*.bak
+*.backup
+*.sql
+*.sql.gz
+
+# Environment files
+.env.*
+!.env.example
+
+# Accidental terminal output files
+/grep
+/null
+
+# Accidental article file
+/Spania - Anglia*
