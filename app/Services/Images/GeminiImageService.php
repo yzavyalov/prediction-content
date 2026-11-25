@@ -40,8 +40,8 @@ class GeminiImageService
         );
 
         $prompt = <<<PROMPT
-                    Create a high-quality, visually striking, square editorial
-                    illustration for a prediction market.
+                    Create a high-quality, visually striking, widescreen editorial
+                    illustration for a prediction market in 16:9 landscape format.
 
                     Market event:
                     {$marketTitle}
@@ -57,7 +57,10 @@ class GeminiImageService
                     - Do not present an uncertain future outcome as an established fact.
                     - Use a balanced composition with cinematic lighting and rich details.
                     - Avoid unnecessary text, captions, dates, and watermarks.
-                    - Generate exactly one square image.
+                    - Generate exactly one landscape image with a 16:9 aspect ratio.
+                    - Use the entire widescreen canvas without borders or empty margins.
+                    - Distribute visual elements naturally across the horizontal composition.
+                    - Keep important subjects and logos fully visible.
                     - Return an image, not a text explanation.
                     PROMPT;
 
@@ -87,6 +90,9 @@ class GeminiImageService
                     'generationConfig' => [
                         'responseModalities' => [
                             'IMAGE',
+                        ],
+                        'imageConfig' => [
+                            'aspectRatio' => '16:9',
                         ],
                     ],
                 ]);
@@ -200,6 +206,16 @@ class GeminiImageService
                 if ($imageInfo === false) {
                     throw new RuntimeException(
                         'Gemini returned data that is not a valid image.'
+                    );
+                }
+
+                $aspectRatio = $imageInfo[0] / $imageInfo[1];
+
+                if (abs($aspectRatio - (16 / 9)) > 0.02) {
+                    throw new RuntimeException(
+                        'Gemini returned an invalid image aspect ratio: '
+                        . $imageInfo[0] . 'x' . $imageInfo[1]
+                        . '. Expected 16:9.'
                     );
                 }
 
